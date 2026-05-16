@@ -1750,16 +1750,23 @@ impl Tty {
             | RedrawState::Queued
             | RedrawState::WaitingForEstimatedVBlank(_)
             | RedrawState::WaitingForEstimatedVBlankAndQueued(_)) => {
-                // This is an error!() because it shouldn't happen, but on some systems it somehow
-                // does. Kernel sending rogue vblank events?
-                //
-                // https://github.com/niri-wm/niri/issues/556
-                // https://github.com/niri-wm/niri/issues/615
-                error!(
-                    "unexpected redraw state for output {name} (should be WaitingForVBlank); \
-                     can happen when resuming from sleep or powering on monitors: {state:?}"
-                );
-                true
+                if presentation_mode == Some(PresentationMode::Async) {
+                    matches!(
+                        state,
+                        RedrawState::Queued | RedrawState::WaitingForEstimatedVBlankAndQueued(_)
+                    )
+                } else {
+                    // This is an error!() because it shouldn't happen, but on some systems it somehow
+                    // does. Kernel sending rogue vblank events?
+                    //
+                    // https://github.com/niri-wm/niri/issues/556
+                    // https://github.com/niri-wm/niri/issues/615
+                    error!(
+                        "unexpected redraw state for output {name} (should be WaitingForVBlank); \
+                         can happen when resuming from sleep or powering on monitors: {state:?}"
+                    );
+                    true
+                }
             }
         };
 
@@ -2008,8 +2015,12 @@ impl Tty {
                     match drm_compositor.queue_frame(data) {
                         Ok(()) => {
                             let output_state = niri.output_state.get_mut(output).unwrap();
-                            let new_state = RedrawState::WaitingForVBlank {
-                                redraw_needed: false,
+                            let new_state = if presentation_mode == PresentationMode::Async {
+                                RedrawState::Idle
+                            } else {
+                                RedrawState::WaitingForVBlank {
+                                    redraw_needed: false,
+                                }
                             };
                             match mem::replace(&mut output_state.redraw_state, new_state) {
                                 RedrawState::Idle => unreachable!(),
@@ -2026,6 +2037,10 @@ impl Tty {
                             // will no longer overwrite this frame and will wait for a VBlank.
                             output_state.frame_callback_sequence =
                                 output_state.frame_callback_sequence.wrapping_add(1);
+
+                            if presentation_mode == PresentationMode::Async {
+                                niri.send_frame_callbacks(output);
+                            }
 
                             return RenderResult::Submitted;
                         }
