@@ -1851,7 +1851,7 @@ impl Tty {
         output_state.frame_callback_sequence = output_state.frame_callback_sequence.wrapping_add(1);
 
         match mem::replace(&mut output_state.redraw_state, RedrawState::Idle) {
-            RedrawState::Idle => unreachable!(),
+            RedrawState::Idle => (),
             RedrawState::Queued => unreachable!(),
             RedrawState::WaitingForVBlank { .. } => unreachable!(),
             RedrawState::WaitingForEstimatedVBlank(_) => (),
@@ -2023,7 +2023,7 @@ impl Tty {
                                 }
                             };
                             match mem::replace(&mut output_state.redraw_state, new_state) {
-                                RedrawState::Idle => unreachable!(),
+                                RedrawState::Idle => (),
                                 RedrawState::Queued => (),
                                 RedrawState::WaitingForVBlank { .. } => unreachable!(),
                                 RedrawState::WaitingForEstimatedVBlank(_) => unreachable!(),
@@ -3043,7 +3043,7 @@ fn queue_estimated_vblank_timer(
 ) {
     let output_state = niri.output_state.get_mut(&output).unwrap();
     match mem::take(&mut output_state.redraw_state) {
-        RedrawState::Idle => unreachable!(),
+        RedrawState::Idle => (),
         RedrawState::Queued => (),
         RedrawState::WaitingForVBlank { .. } => unreachable!(),
         RedrawState::WaitingForEstimatedVBlank(token)
