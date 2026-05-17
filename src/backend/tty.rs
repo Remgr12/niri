@@ -1753,7 +1753,7 @@ impl Tty {
                 if presentation_mode == Some(PresentationMode::Async) {
                     matches!(
                         state,
-                        RedrawState::Queued | RedrawState::WaitingForEstimatedVBlankAndQueued(_)
+                        RedrawState::Idle | RedrawState::Queued | RedrawState::WaitingForEstimatedVBlankAndQueued(_)
                     )
                 } else {
                     // This is an error!() because it shouldn't happen, but on some systems it somehow
@@ -1852,8 +1852,10 @@ impl Tty {
 
         match mem::replace(&mut output_state.redraw_state, RedrawState::Idle) {
             RedrawState::Idle => (),
-            RedrawState::Queued => unreachable!(),
-            RedrawState::WaitingForVBlank { .. } => unreachable!(),
+            state @ (RedrawState::Queued | RedrawState::WaitingForVBlank { .. }) => {
+                output_state.redraw_state = state;
+                return;
+            }
             RedrawState::WaitingForEstimatedVBlank(_) => (),
             // The timer fired just in front of a redraw.
             RedrawState::WaitingForEstimatedVBlankAndQueued(_) => {
