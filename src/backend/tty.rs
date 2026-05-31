@@ -1813,9 +1813,11 @@ impl Tty {
         output_state.frame_callback_sequence = output_state.frame_callback_sequence.wrapping_add(1);
 
         match mem::replace(&mut output_state.redraw_state, RedrawState::Idle) {
-            RedrawState::Idle => unreachable!(),
-            RedrawState::Queued => unreachable!(),
-            RedrawState::WaitingForVBlank { .. } => unreachable!(),
+            RedrawState::Idle => (),
+            state @ (RedrawState::Queued | RedrawState::WaitingForVBlank { .. }) => {
+                output_state.redraw_state = state;
+                return;
+            }
             RedrawState::WaitingForEstimatedVBlank(_) => (),
             // The timer fired just in front of a redraw.
             RedrawState::WaitingForEstimatedVBlankAndQueued(_) => {
@@ -1969,7 +1971,7 @@ impl Tty {
                                 redraw_needed: false,
                             };
                             match mem::replace(&mut output_state.redraw_state, new_state) {
-                                RedrawState::Idle => unreachable!(),
+                                RedrawState::Idle => (),
                                 RedrawState::Queued => (),
                                 RedrawState::WaitingForVBlank { .. } => unreachable!(),
                                 RedrawState::WaitingForEstimatedVBlank(_) => unreachable!(),
@@ -1987,7 +1989,14 @@ impl Tty {
                             return RenderResult::Submitted;
                         }
                         Err(err) => {
-                            warn!("error queueing frame: {err}");
+                            if presentation_mode == PresentationMode::Async {
+                                let output_state = niri.output_state.get_mut(output).unwrap();
+                                output_state.frame_callback_sequence =
+                                    output_state.frame_callback_sequence.wrapping_add(1);
+                                niri.send_frame_callbacks(output);
+                            } else {
+                                warn!("error queueing frame: {err}");
+                            }
                         }
                     }
                 } else {
@@ -2960,7 +2969,7 @@ fn queue_estimated_vblank_timer(
 ) {
     let output_state = niri.output_state.get_mut(&output).unwrap();
     match mem::take(&mut output_state.redraw_state) {
-        RedrawState::Idle => unreachable!(),
+        RedrawState::Idle => (),
         RedrawState::Queued => (),
         RedrawState::WaitingForVBlank { .. } => unreachable!(),
         RedrawState::WaitingForEstimatedVBlank(token)

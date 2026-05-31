@@ -546,6 +546,33 @@ impl State {
                         _ => None,
                     })
             });
+            // Handle syncobj acquire point regardless of buffer type (dmabuf or not).
+            // This must run even when maybe_dmabuf is None, e.g. for Vulkan clients
+            // using explicit sync (drm_syncobj) with non-dmabuf buffers like Sober.
+            if let Some(acquire_point) = acquire_point {
+                if let Ok((blocker, source)) = acquire_point.generate_blocker() {
+                    if let Some(client) = surface.client() {
+                        let res =
+                            state
+                                .niri
+                                .event_loop
+                                .insert_source(source, move |_, _, state| {
+                                    let display_handle = state.niri.display_handle.clone();
+                                    state
+                                        .client_compositor_state(&client)
+                                        .blocker_cleared(state, &display_handle);
+                                    Ok(())
+                                });
+                        if res.is_ok() {
+                            add_blocker(surface, blocker);
+                            trace!("added syncobj blocker");
+                            return;
+                        }
+                    }
+                }
+            }
+
+            // Fallback: implicit sync via dmabuf fence.
             if let Some(dmabuf) = maybe_dmabuf {
                 if let Ok((blocker, source)) = dmabuf.generate_blocker(Interest::READ) {
                     if let Some(client) = surface.client() {

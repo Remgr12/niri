@@ -5020,6 +5020,16 @@ impl Niri {
         let state = self.output_state.get(output).unwrap();
         let sequence = state.frame_callback_sequence;
 
+        // When tearing is active, skip the throttle entirely so the tearing application
+        // can submit frames faster than the monitor refresh rate. With the standard
+        // throttle, frame callbacks are gated by the vblank sequence number and would
+        // cap the client at monitor refresh rate even with async presentation.
+        let throttle = if self.output_allows_tearing(output) {
+            None
+        } else {
+            FRAME_CALLBACK_THROTTLE
+        };
+
         let should_send = |surface: &WlSurface, states: &SurfaceData| {
             // Do the standard primary scanout output check. For pointer surfaces it deduplicates
             // the frame callbacks across potentially multiple outputs, and for regular windows and
@@ -5059,7 +5069,7 @@ impl Niri {
             mapped.send_frame(
                 output,
                 frame_callback_time,
-                FRAME_CALLBACK_THROTTLE,
+                throttle,
                 should_send,
             );
         }
