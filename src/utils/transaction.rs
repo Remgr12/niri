@@ -9,8 +9,11 @@ use atomic::Ordering;
 use calloop::ping::{make_ping, Ping};
 use calloop::timer::{TimeoutAction, Timer};
 use calloop::LoopHandle;
-use smithay::reexports::wayland_server::Client;
-use smithay::wayland::compositor::{Blocker, BlockerState};
+use smithay::reexports::wayland_server::protocol::wl_surface::WlSurface;
+use smithay::reexports::wayland_server::{Client, DisplayHandle};
+use smithay::wayland::compositor::{
+    add_blocker, Blocker, BlockerState, CompositorHandler, SurfaceBarrier,
+};
 
 /// Default time limit, after which the transaction completes.
 ///
@@ -27,12 +30,13 @@ const TIME_LIMIT: Duration = Duration::from_millis(300);
 /// 4. Before adding the transaction as a commit blocker, remember to call
 ///    [`Transaction::register_deadline_timer()`] to make sure the transaction completes when
 ///    reaching the deadline.
-/// 5. In your surface pre-commit handler, if the transaction corresponding to that commit isn't
-///    ready, get a blocker with [`Transaction::blocker()`] and add it to the surface.
+/// 5. In your surface pre-commit handler, use [`Transaction::register_surface()`] for any surface
+///    participating in the transaction.
 #[derive(Debug, Clone)]
 pub struct Transaction {
     inner: Arc<Inner>,
     deadline: Rc<RefCell<Deadline>>,
+    surface_barrier: Rc<RefCell<Option<SurfaceBarrier>>>,
 }
 
 /// Blocker for a [`Transaction`].
@@ -62,6 +66,7 @@ impl Transaction {
             deadline: Rc::new(RefCell::new(Deadline::NotRegistered(
                 Instant::now() + TIME_LIMIT,
             ))),
+            surface_barrier: Rc::new(RefCell::new(None)),
         }
     }
 
@@ -82,14 +87,48 @@ impl Transaction {
         guard.get_or_insert((sender, Vec::new())).1.push(client);
     }
 
+    pub fn register_surface<T: CompositorHandler + 'static>(
+        &self,
+        surface: &WlSurface,
+        event_loop: &LoopHandle<'static, T>,
+        display_handle: &DisplayHandle,
+    ) {
+        let mut surface_barrier = self.surface_barrier.borrow_mut();
+        if surface_barrier.is_none() {
+            let (ping, ping_source) = make_ping().unwrap();
+            let barrier = SurfaceBarrier::new(ping);
+            event_loop
+                .insert_source(ping_source, {
+                    let barrier = barrier.clone();
+                    let display_handle = display_handle.clone();
+                    move |_, _, state| {
+                        barrier.release(&display_handle, state);
+                    }
+                })
+                .unwrap();
+            *surface_barrier = Some(barrier);
+        }
+
+        trace!(transaction = ?Arc::as_ptr(&self.inner), "registering surface");
+        let surface_barrier = surface_barrier.as_mut().unwrap();
+        surface_barrier.register_surfaces([surface]);
+        add_blocker(surface, self.blocker());
+    }
+
     /// Registers this transaction's deadline timer on an event loop.
-    pub fn register_deadline_timer<T: 'static>(&self, event_loop: &LoopHandle<'static, T>) {
+    pub fn register_deadline_timer<T: CompositorHandler + 'static>(
+        &self,
+        event_loop: &LoopHandle<'static, T>,
+        display_handle: &DisplayHandle,
+    ) {
         let mut cell = self.deadline.borrow_mut();
         if let Deadline::NotRegistered(deadline) = *cell {
             let timer = Timer::from_deadline(deadline);
             let inner = Arc::downgrade(&self.inner);
+            let surface_barrier = self.surface_barrier.clone();
+            let display_handle = display_handle.clone();
             let token = event_loop
-                .insert_source(timer, move |_, _, _| {
+                .insert_source(timer, move |_, _, state| {
                     let _span = trace_span!("deadline timer", transaction = ?Weak::as_ptr(&inner))
                         .entered();
 
@@ -103,6 +142,10 @@ impl Transaction {
                         // just happen to run while the ping callback is scheduled, leading to this
                         // branch being legitimately taken.
                         trace!("transaction completed without removing the timer");
+                    }
+
+                    if let Some(surface_barrier) = surface_barrier.borrow_mut().take() {
+                        surface_barrier.release(&display_handle, state);
                     }
 
                     TimeoutAction::Drop
