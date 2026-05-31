@@ -644,7 +644,7 @@ pub struct PendingMruCommit {
 }
 
 impl RedrawState {
-    fn queue_redraw(self) -> Self {
+    fn queue_redraw(self, allow_tearing: bool) -> Self {
         match self {
             RedrawState::Idle => RedrawState::Queued,
             RedrawState::WaitingForEstimatedVBlank(token) => {
@@ -656,10 +656,18 @@ impl RedrawState {
                 value
             }
 
-            // We're waiting for VBlank, request a redraw afterwards.
-            RedrawState::WaitingForVBlank { .. } => RedrawState::WaitingForVBlank {
-                redraw_needed: true,
-            },
+            // We're waiting for VBlank. Normally we just request a redraw afterwards, but if
+            // tearing is active we can submit a new async page flip mid-vblank instead of
+            // waiting — that's the whole point of tearing.
+            RedrawState::WaitingForVBlank { .. } => {
+                if allow_tearing {
+                    RedrawState::Queued
+                } else {
+                    RedrawState::WaitingForVBlank {
+                        redraw_needed: true,
+                    }
+                }
+            }
         }
     }
 }
@@ -3919,15 +3927,22 @@ impl Niri {
 
     /// Schedules an immediate redraw on all outputs if one is not already scheduled.
     pub fn queue_redraw_all(&mut self) {
-        for state in self.output_state.values_mut() {
-            state.redraw_state = mem::take(&mut state.redraw_state).queue_redraw();
+        // Collect outputs first so we can call output_allows_tearing without holding a borrow on
+        // output_state.
+        let outputs: Vec<_> = self.output_state.keys().cloned().collect();
+        for output in outputs {
+            let allow_tearing = self.output_allows_tearing(&output);
+            let state = self.output_state.get_mut(&output).unwrap();
+            state.redraw_state =
+                mem::take(&mut state.redraw_state).queue_redraw(allow_tearing);
         }
     }
 
     /// Schedules an immediate redraw if one is not already scheduled.
     pub fn queue_redraw(&mut self, output: &Output) {
+        let allow_tearing = self.output_allows_tearing(output);
         let state = self.output_state.get_mut(output).unwrap();
-        state.redraw_state = mem::take(&mut state.redraw_state).queue_redraw();
+        state.redraw_state = mem::take(&mut state.redraw_state).queue_redraw(allow_tearing);
     }
 
     pub fn scheduled_outputs(&self) -> Vec<(Output, Duration)> {
