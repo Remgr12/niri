@@ -2657,6 +2657,10 @@ impl State {
             }
         }
 
+        // Notify a11y.
+        #[cfg(feature = "dbus")]
+        self.a11y_notify_pointer_motion();
+
         // Redraw to update the cursor position.
         // FIXME: redraw only outputs overlapping the cursor.
         self.niri.queue_redraw_all();
@@ -2754,6 +2758,10 @@ impl State {
                 self.niri.layout.dnd_update(output, pos_within_output);
             }
         }
+
+        // Notify a11y.
+        #[cfg(feature = "dbus")]
+        self.a11y_notify_pointer_motion();
 
         // Redraw to update the cursor position.
         // FIXME: redraw only outputs overlapping the cursor.
