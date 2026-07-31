@@ -214,7 +214,19 @@
       packages = forAllSystems (
         system:
         let
-          niri = nixpkgsFor.${system}.callPackage niri-package { };
+          pkgs = nixpkgsFor.${system};
+          niri = pkgs.callPackage niri-package {
+            libdisplay-info = pkgs.libdisplay-info.overrideAttrs (old: {
+              version = "0.3.0";
+              src = pkgs.fetchFromGitLab {
+                domain = "gitlab.freedesktop.org";
+                owner = "emersion";
+                repo = "libdisplay-info";
+                rev = "0.3.0";
+                sha256 = "1mxd1gcczfdqlm60qph94g4rw0whh4r9fiqrfbfand1gd8lgcxwx";
+              };
+            });
+          };
         in
         {
           inherit niri;
