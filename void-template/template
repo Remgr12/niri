@@ -1,0 +1,48 @@
+# Template file for 'niri'
+pkgname=niri
+version=26.4.0
+revision=1
+build_style=cargo
+build_helper="qemu"
+configure_args="--no-default-features --features dbus,xdp-gnome-screencast"
+hostmakedepends="pkg-config clang19-devel git"
+makedepends="eudev-libudev-devel libxkbcommon-devel libinput-devel libgbm-devel
+ libdisplay-info-devel pipewire-devel pango-devel libseat-devel clang19-devel
+gdk-pixbuf-devel graphene-devel gtk4-devel libadwaita-devel"
+depends="wayland"
+checkdepends="wayland"
+short_desc="Scrollable-tiling Wayland compositor (remgr12 fork)"
+maintainer="remgr <remgr@example.com>"
+license="GPL-3.0-or-later"
+homepage="https://github.com/remgr12/niri"
+create_wrksrc=yes
+
+do_fetch() {
+	# Fetch the latest from the user's fork
+	git clone https://github.com/remgr12/niri.git "$wrksrc"
+}
+
+pre_check() {
+	export XDG_RUNTIME_DIR=$(mktemp -d "$wrksrc/runtime.XXXXXX")
+	ulimit -n 4096
+}
+
+do_check() {
+	if [ "$XBPS_TARGET_LIBC" != "musl" ]; then
+		cargo test --target ${RUST_TARGET} --workspace --locked -- --skip=::egl
+	fi
+}
+
+post_install() {
+	local sh
+
+	vinstall resources/niri.desktop 644 usr/share/wayland-sessions
+	vinstall resources/niri-portals.conf 644 usr/share/xdg-desktop-portal
+
+	vsconf resources/default-config.kdl
+
+	for sh in bash fish zsh; do
+		vtargetrun "${DESTDIR}/usr/bin/niri" completions "${sh}" > "niri.${sh}"
+		vcompletion "niri.${sh}" "${sh}"
+	done
+}
