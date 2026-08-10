@@ -15,7 +15,7 @@ build() {
   export CARGO_TARGET_DIR="$srcdir/target"
   cd "$srcdir/.."
   chmod 755 "$srcdir/../pkg" || true
-  cargo build --release --locked --all-features
+  cargo build --release --locked
 }
 
 package() {
