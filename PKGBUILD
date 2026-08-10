@@ -12,15 +12,18 @@ conflicts=('niri')
 
 build() {
   export RUSTUP_TOOLCHAIN=stable
-  export CARGO_TARGET_DIR=target
+  export CARGO_TARGET_DIR="$srcdir/target"
+  cd "$srcdir/.."
+  chmod 755 "$srcdir/../pkg" || true
   cargo build --release --locked --all-features
 }
 
 package() {
-  install -Dm755 target/release/niri "$pkgdir/usr/bin/niri"
+  cd "$srcdir/.."
+  install -Dm755 "$srcdir/target/release/niri" "$pkgdir/usr/bin/niri"
   
-  if [ -f target/release/niri-msg ]; then
-    install -Dm755 target/release/niri-msg "$pkgdir/usr/bin/niri-msg"
+  if [ -f "$srcdir/target/release/niri-msg" ]; then
+    install -Dm755 "$srcdir/target/release/niri-msg" "$pkgdir/usr/bin/niri-msg"
   fi
 
   # Desktop file wrapped with prime-run
