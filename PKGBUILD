@@ -13,6 +13,9 @@ conflicts=('niri')
 build() {
   export RUSTUP_TOOLCHAIN=stable
   export CARGO_TARGET_DIR="$srcdir/target"
+  export CC=clang
+  export CXX=clang++
+  CFLAGS+=(' -ffat-lto-objects')
   cd "$srcdir/.."
   chmod 755 "$srcdir/../pkg" || true
   cargo build --release --locked
